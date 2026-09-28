@@ -1,0 +1,14 @@
+{% if bgp %}
+ip route {{ bgp.advertise.net }} {{ bgp.advertise.mask }} Null0 name BGP_ANCHOR
+ip prefix-list ADVERTISE seq 10 permit {{ bgp.advertise.net }}/{{ bgp.advertise.mask | prefixLen }}
+router bgp {{ bgp.asn }}
+ bgp router-id {{ routerId }}
+ bgp log-neighbor-changes
+ neighbor {{ bgp.neighbor }} remote-as {{ bgp.remoteAs }}
+ neighbor {{ bgp.neighbor }} description ISP-PE
+ address-family ipv4
+  network {{ bgp.advertise.net }} mask {{ bgp.advertise.mask }}
+  neighbor {{ bgp.neighbor }} activate
+  neighbor {{ bgp.neighbor }} prefix-list ADVERTISE out
+ exit-address-family
+{% endif %}

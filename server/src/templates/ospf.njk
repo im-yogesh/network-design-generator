@@ -1,0 +1,16 @@
+{% if ospf %}
+router ospf 1
+ router-id {{ routerId }}
+{% if ospf.passiveDefault %}
+ passive-interface default
+{% for a in ospf.active %}
+ no passive-interface {{ a }}
+{% endfor %}
+{% endif %}
+{% for n in ospf.networks %}
+ network {{ n.net }} {{ n.wildcard }} area 0
+{% endfor %}
+{% if ospf.defaultOriginate %}
+ default-information originate
+{% endif %}
+{% endif %}

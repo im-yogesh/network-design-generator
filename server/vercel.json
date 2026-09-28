@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/index.js": { "includeFiles": "src/templates/**" }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+}

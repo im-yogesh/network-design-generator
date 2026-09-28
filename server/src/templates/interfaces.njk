@@ -1,0 +1,44 @@
+{% if track %}
+track {{ track.id }} interface {{ track.interface }} line-protocol
+{% endif %}
+{% for i in interfaces %}
+interface {{ i.name }}
+ description {{ i.description }}
+{% if i.mode == 'access' %}
+ switchport mode access
+ switchport access vlan {{ i.vlan }}
+{% if i.portfast %}
+ spanning-tree portfast
+{% endif %}
+{% elif i.mode == 'trunk' %}
+ switchport mode trunk
+ switchport trunk allowed vlan {{ i.allowed }}
+{% if i.channel %}
+ channel-group {{ i.channel }} mode active
+{% endif %}
+{% else %}
+ ip address {{ i.ip }} {{ i.mask }}
+{% if i.helper %}
+ ip helper-address {{ i.helper }}
+{% endif %}
+{% if i.nat %}
+ ip nat {{ i.nat }}
+{% endif %}
+{% if i.acl %}
+ ip access-group {{ i.acl }} in
+{% endif %}
+{% if i.hsrp %}
+ standby version 2
+ standby {{ i.hsrp.group }} ip {{ i.hsrp.vip }}
+ standby {{ i.hsrp.group }} priority {{ i.hsrp.priority }}
+ standby {{ i.hsrp.group }} preempt
+{% if i.hsrp.track %}
+ standby {{ i.hsrp.group }} track {{ i.hsrp.track }} decrement 20
+{% endif %}
+{% endif %}
+{% endif %}
+ no shutdown
+{% endfor %}
+{% if defaultGateway %}
+ip default-gateway {{ defaultGateway }}
+{% endif %}

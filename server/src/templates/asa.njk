@@ -1,0 +1,53 @@
+! ==== {{ hostname }} ({{ model }}, ASA software){% if pair %} - HA pair, config applied on primary{% endif %} ====
+hostname {{ hostname }}
+domain-name {{ domain }}
+enable password CHANGE_ME
+username admin password CHANGE_ME privilege 15
+!
+interface {{ outside.name }}
+ nameif outside
+ security-level 0
+ ip address {{ outside.ip }} {{ outside.mask }}{% if pair %} standby {{ outside.standby }}{% endif %}
+
+ no shutdown
+!
+interface {{ inside.name }}
+ nameif inside
+ security-level 100
+ ip address {{ inside.ip }} {{ inside.mask }}{% if pair %} standby {{ inside.standby }}{% endif %}
+
+ no shutdown
+!
+route outside 0.0.0.0 0.0.0.0 {{ defaultGw }}
+route inside {{ lan.network }} {{ lan.mask }} {{ lan.nh }}
+!
+{% if webServer %}
+object network WEB_SERVER
+ host {{ webServer }}
+access-list OUTSIDE_IN extended permit tcp any object WEB_SERVER eq www
+access-list OUTSIDE_IN extended permit tcp any object WEB_SERVER eq https
+access-group OUTSIDE_IN in interface outside
+!
+{% endif %}
+{% if vpn == 'remote-access' %}
+! Remote access VPN: configure AnyConnect / webvpn on outside interface
+{% elif vpn == 'site-to-site' %}
+! Site-to-site VPN: configure crypto map on outside interface per peer
+{% endif %}
+{% if failover %}
+failover
+failover lan unit primary
+failover lan interface FOLINK {{ failover.name }}
+failover interface ip FOLINK {{ failover.ip }} {{ failover.mask }} standby {{ failover.standby }}
+failover key CHANGE_ME
+!
+{% endif %}
+{% if monitoring.syslog %}
+logging enable
+logging host inside {{ nms }}
+{% endif %}
+{% if monitoring.snmp %}
+snmp-server host inside {{ nms }} community CHANGE_ME
+{% endif %}
+ssh {{ lan.network }} {{ lan.mask }} inside
+ssh version 2

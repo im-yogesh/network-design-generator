@@ -1,0 +1,8 @@
+{% if nat %}
+ip access-list standard NAT_LAN
+ permit {{ nat.lan.network }} {{ nat.lan.wildcard }}
+ip nat inside source list NAT_LAN interface {{ nat.outside }} overload
+{% if nat.static %}
+ip nat inside source static {{ nat.static.inside }} {{ nat.static.outside }}
+{% endif %}
+{% endif %}

@@ -1,0 +1,8 @@
+{% for p in dhcpPools %}
+ip dhcp excluded-address {{ p.net.firstHost }} {{ p.net.at(10) }}
+ip dhcp pool {{ p.name }}
+ network {{ p.net.network }} {{ p.net.mask }}
+ default-router {{ p.net.firstHost }}
+ dns-server {{ p.dns }}
+ domain-name {{ p.domain }}
+{% endfor %}

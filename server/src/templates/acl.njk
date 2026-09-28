@@ -1,0 +1,12 @@
+{% if vtyAcl %}
+ip access-list standard MGMT_ONLY
+ permit {{ vtyAcl.network }} {{ vtyAcl.wildcard }}
+ deny any log
+{% endif %}
+{% if guestAcl %}
+ip access-list extended GUEST_IN
+ permit udp any any eq bootps
+ permit udp {{ guestAcl.guest.network }} {{ guestAcl.guest.wildcard }} any eq domain
+ deny ip {{ guestAcl.guest.network }} {{ guestAcl.guest.wildcard }} {{ guestAcl.lan.network }} {{ guestAcl.lan.wildcard }}
+ permit ip {{ guestAcl.guest.network }} {{ guestAcl.guest.wildcard }} any
+{% endif %}

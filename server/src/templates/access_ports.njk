@@ -1,0 +1,8 @@
+{% for r in portRanges %}
+interface range {{ r.range }}
+ description {{ r.name }} users
+ switchport mode access
+ switchport access vlan {{ r.vlan }}
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+{% endfor %}

@@ -1,0 +1,10 @@
+{% for v in vlans %}
+vlan {{ v.id }}
+ name {{ v.name }}
+{% endfor %}
+{% if stpRoot %}
+spanning-tree mode rapid-pvst
+spanning-tree vlan {{ vlans | join(',', 'id') }} root {{ stpRoot }}
+{% else %}
+spanning-tree mode rapid-pvst
+{% endif %}

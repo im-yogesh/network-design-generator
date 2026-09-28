@@ -1,0 +1,19 @@
+{% if monitoring.snmp %}
+snmp-server community CHANGE_ME RO
+snmp-server location {{ customer }}
+snmp-server host {{ nms }} version 2c CHANGE_ME
+{% endif %}
+{% if monitoring.syslog %}
+logging trap informational
+logging host {{ nms }}
+{% endif %}
+{% if netflow %}
+flow exporter NMS
+ destination {{ netflow.collector }}
+ transport udp 2055
+flow monitor WAN_MON
+ exporter NMS
+ record netflow ipv4 original-input
+interface {{ netflow.interface }}
+ ip flow monitor WAN_MON input
+{% endif %}

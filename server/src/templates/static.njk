@@ -1,0 +1,3 @@
+{% for r in staticRoutes %}
+ip route {{ r.net }} {{ r.mask }} {{ r.nh }} name {{ r.name }}
+{% endfor %}

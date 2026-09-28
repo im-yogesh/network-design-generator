@@ -1,0 +1,22 @@
+! ==== {{ hostname }} ({{ model }}) - {{ customer }} ====
+hostname {{ hostname }}
+service password-encryption
+no ip domain-lookup
+ip domain-name {{ domain }}
+enable secret CHANGE_ME
+username admin privilege 15 secret CHANGE_ME
+! Run once on device: crypto key generate rsa modulus 2048
+ip ssh version 2
+{% if ipRouting %}
+ip routing
+{% endif %}
+{% if ntp %}
+ntp server {{ ntp }}
+{% endif %}
+banner motd ^Authorized access only - {{ customer }}^
+line vty 0 15
+ transport input ssh
+ login local
+{% if vtyAcl %}
+ access-class MGMT_ONLY in
+{% endif %}
