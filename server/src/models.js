@@ -1,6 +1,18 @@
 import mongoose from 'mongoose';
 import { DEPT_KINDS, DEPLOYMENT_TYPES, HA_MODES } from './engine/design.js';
 
+export const User = mongoose.model(
+  'User',
+  new mongoose.Schema(
+    {
+      name: { type: String, required: true, trim: true },
+      email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+      passwordHash: { type: String, required: true },
+    },
+    { timestamps: true }
+  )
+);
+
 const poolSchema = new mongoose.Schema({
   network: { type: String, required: true, unique: true },
   prefix: { type: Number, required: true },
@@ -38,6 +50,7 @@ export const Design = mongoose.model(
   'Design',
   new mongoose.Schema(
     {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
       customerName: { type: String, required: true },
       input: inputSchema,
       design: Object,

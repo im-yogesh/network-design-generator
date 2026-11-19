@@ -4,6 +4,8 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import designRoutes from './routes/designs.js';
 import ipamRoutes from './routes/ipam.js';
+import authRoutes from './routes/auth.js';
+import { requireAuth } from './middleware/auth.js';
 import { seedPublicPool } from './seed.js';
 
 // Cached across serverless invocations; reset on failure so the next request retries.
@@ -22,8 +24,9 @@ app.use(cors());
 app.use(express.json());
 app.use((req, res, next) => connect().then(() => next(), next));
 
-app.use('/api/designs', designRoutes);
-app.use('/api/ipam', ipamRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/designs', requireAuth, designRoutes);
+app.use('/api/ipam', requireAuth, ipamRoutes);
 
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message });

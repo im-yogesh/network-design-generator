@@ -38,7 +38,13 @@ export default function DesignView({ design: doc }) {
           <h2>{doc.customerName}</h2>
           <span className="hint">{new Date(doc.createdAt).toLocaleString()} · {design.designUsers} users · {ipPlan.lanBlock}</span>
         </div>
-        <a className="primary" href={api.pdfUrl(doc._id)}>Download PDF Report</a>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => api.downloadPdf(doc._id, `${slug}_design.pdf`).catch((e) => alert(e.message))}
+        >
+          Download PDF Report
+        </button>
       </div>
 
       <div className="tabs">

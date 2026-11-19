@@ -8,7 +8,7 @@ export default function IpamView() {
   }, []);
 
   return (
-    <div>
+    <div className="ipam-panel">
       <h2>IP Address Management</h2>
       {['private', 'wan', 'public'].map((type) => (
         <div key={type}>

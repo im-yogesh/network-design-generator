@@ -10,6 +10,7 @@ import { allocatePrivateBlock, allocateWan, reserveCustomerBlock, releaseDesign 
 const r = Router();
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 const notFound = () => Object.assign(new Error('Design not found'), { status: 404 });
+const owned = (id, userId) => Design.findOne({ _id: id, userId });
 
 r.post(
   '/',
@@ -28,6 +29,7 @@ r.post(
       const plan = buildPlan(design, input, { lanBlock, wanLinks, publicBlock: null });
       const doc = await Design.create({
         _id,
+        userId: req.user._id,
         customerName: customer,
         input,
         design,
@@ -47,14 +49,18 @@ r.post(
 r.get(
   '/',
   wrap(async (req, res) => {
-    res.json(await Design.find({}, 'customerName createdAt design.designUsers ipPlan.lanBlock').sort({ createdAt: -1 }).lean());
+    res.json(
+      await Design.find({ userId: req.user._id }, 'customerName createdAt design.designUsers ipPlan.lanBlock')
+        .sort({ createdAt: -1 })
+        .lean()
+    );
   })
 );
 
 r.get(
   '/:id',
   wrap(async (req, res) => {
-    const doc = await Design.findById(req.params.id).lean();
+    const doc = await owned(req.params.id, req.user._id).lean();
     if (!doc) throw notFound();
     res.json(doc);
   })
@@ -63,7 +69,7 @@ r.get(
 r.get(
   '/:id/pdf',
   wrap(async (req, res) => {
-    const doc = await Design.findById(req.params.id).lean();
+    const doc = await owned(req.params.id, req.user._id).lean();
     if (!doc) throw notFound();
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${doc.customerName.replace(/\W+/g, '_')}_design.pdf"`);
@@ -74,6 +80,8 @@ r.get(
 r.delete(
   '/:id',
   wrap(async (req, res) => {
+    const doc = await owned(req.params.id, req.user._id);
+    if (!doc) throw notFound();
     await releaseDesign(req.params.id);
     await Design.findByIdAndDelete(req.params.id);
     res.status(204).end();
