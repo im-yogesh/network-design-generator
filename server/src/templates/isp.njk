@@ -1,0 +1,53 @@
+! ==== {{ hostname }} ({{ model }}) - provider edge for {{ customer }} ====
+hostname {{ hostname }}
+service password-encryption
+no ip domain-lookup
+ip domain-name isp.local
+enable secret CHANGE_ME
+username admin privilege 15 secret CHANGE_ME
+ip ssh version 2
+ip routing
+banner motd ^ISP PE - {{ customer }} circuit^
+line vty 0 15
+ transport input ssh
+ login local
+!
+{% for i in interfaces %}
+interface {{ i.name }}
+ description {{ i.description }}
+ ip address {{ i.ip }} {{ i.mask }}
+ no shutdown
+!
+{% endfor %}
+{% for r in staticRoutes %}
+ip route {{ r.net }} {{ r.mask }} {{ r.nh }}{% if r.ad %} {{ r.ad }}{% endif %} name {{ r.name }}
+{% endfor %}
+{% if bgp %}
+{% if bgp.advertise %}
+ip route {{ bgp.advertise.net }} {{ bgp.advertise.mask }} Null0 name CUST_ANCHOR
+{% endif %}
+router bgp {{ bgp.asn }}
+ bgp router-id {{ routerId }}
+ bgp log-neighbor-changes
+{% for n in bgp.neighbors %}
+ neighbor {{ n.ip }} remote-as {{ n.remoteAs }}
+ neighbor {{ n.ip }} description {{ n.peer }}-CE
+{% endfor %}
+ address-family ipv4
+{% for n in bgp.neighbors %}
+  neighbor {{ n.ip }} activate
+  neighbor {{ n.ip }} default-originate
+{% if bgp.advertise %}
+  neighbor {{ n.ip }} prefix-list CUST_IN in
+{% endif %}
+{% endfor %}
+{% if bgp.advertise %}
+  network {{ bgp.advertise.net }} mask {{ bgp.advertise.mask }}
+{% endif %}
+ exit-address-family
+{% if bgp.advertise %}
+!
+ip prefix-list CUST_IN seq 10 permit {{ bgp.advertise.net }}/{{ bgp.advertise.mask | prefixLen }}
+{% endif %}
+{% endif %}
+end

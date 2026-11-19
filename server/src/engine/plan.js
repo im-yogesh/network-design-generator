@@ -81,9 +81,46 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
     vtyAcl: design.acl ? { network: mgmt.network, wildcard: mgmt.wildcard } : null,
   };
   const useOspf = design.routing.internal === 'OSPF';
+  const useBgp = design.routing.external === 'BGP';
   let rid = 0;
   const nextRid = () => (++rid, `${rid}.${rid}.${rid}.${rid}`);
   const devices = [];
+
+  // ISP PE (provider edge) — one device per ISP, mirrors CE WAN side
+  const byIsp = new Map();
+  for (const w of wan) (byIsp.get(w.isp) || byIsp.set(w.isp, []).get(w.isp)).push(w);
+  for (const [isp, links] of byIsp) {
+    devices.push({
+      ...common,
+      hostname: isp,
+      role: 'isp',
+      model: 'ISP PE',
+      ipRouting: true,
+      routerId: nextRid(),
+      interfaces: links.map((w, j) => ({
+        name: `GigabitEthernet0/${j}`,
+        description: `PE to customer R${w.router + 1}`,
+        ip: w.pe,
+        mask: w.mask,
+      })),
+      bgp: useBgp
+        ? {
+            asn: links[0].remoteAs,
+            neighbors: links.map((w) => ({ ip: w.ce, remoteAs: 65001, peer: `R${w.router + 1}` })),
+            advertise: pub ? { net: pub.network, mask: pub.mask } : null,
+          }
+        : null,
+      staticRoutes: useBgp
+        ? []
+        : links.map((w, j) => ({
+            net: lan.network,
+            mask: lan.mask,
+            nh: w.ce,
+            ad: j ? 10 : null,
+            name: j ? 'CUST_LAN_BACKUP' : 'CUST_LAN',
+          })),
+    });
+  }
 
   // Edge routers
   for (let i = 0; i < R; i++) {

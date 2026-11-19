@@ -8,6 +8,7 @@ env.addFilter('prefixLen', (mask) => mask.split('.').reduce((n, o) => n + Number
 
 // Feature modules assembled per device role; modules with no data render empty.
 const MODULES = {
+  isp: ['isp'],
   router: ['base', 'interfaces', 'static', 'ospf', 'bgp', 'nat', 'acl', 'monitoring'],
   core: ['base', 'vlans', 'interfaces', 'static', 'ospf', 'dhcp', 'acl', 'monitoring'],
   access: ['base', 'vlans', 'access_ports', 'interfaces', 'acl', 'monitoring'],
@@ -15,6 +16,8 @@ const MODULES = {
 };
 
 export function renderDevice(device) {
+  // ISP template is self-contained (includes end)
+  if (device.role === 'isp') return env.render('isp.njk', device).trim() + '\n';
   const parts = MODULES[device.role]
     .map((m) => env.render(`${m}.njk`, device).trim())
     .filter(Boolean);
