@@ -1,5 +1,5 @@
 import { IpPool } from '../models.js';
-import { parseCidr, intToIp, overlaps, prefixForHosts } from './ip.js';
+import { parseCidr, intToIp, overlaps } from './ip.js';
 
 const conflict = (msg) => Object.assign(new Error(msg), { status: 409 });
 
@@ -48,18 +48,6 @@ export async function reserveCustomerBlock(cidr, customer, designId) {
     throw e;
   }
   return network;
-}
-
-// Public IPs come only from ISP inventory (seeded pool), never generated.
-export async function allocatePublic(count, customer, designId) {
-  const prefix = Math.min(29, prefixForHosts(Number(count) + 1));
-  const doc = await IpPool.findOneAndUpdate(
-    { type: 'public', status: 'Available', prefix: { $lte: prefix } },
-    { $set: { status: 'Allocated', assignedTo: customer, designId } },
-    { sort: { prefix: -1, network: 1 }, new: true }
-  );
-  if (!doc) throw conflict(`No public IP block available for ${count} addresses. Add blocks to the public pool.`);
-  return doc.network;
 }
 
 export async function releaseDesign(designId) {

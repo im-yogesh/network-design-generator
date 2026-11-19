@@ -4,11 +4,15 @@ ip prefix-list ADVERTISE seq 10 permit {{ bgp.advertise.net }}/{{ bgp.advertise.
 router bgp {{ bgp.asn }}
  bgp router-id {{ routerId }}
  bgp log-neighbor-changes
- neighbor {{ bgp.neighbor }} remote-as {{ bgp.remoteAs }}
- neighbor {{ bgp.neighbor }} description ISP-PE
+{% for n in bgp.neighbors %}
+ neighbor {{ n.ip }} remote-as {{ n.remoteAs }}
+ neighbor {{ n.ip }} description {{ n.isp }}-PE
+{% endfor %}
  address-family ipv4
   network {{ bgp.advertise.net }} mask {{ bgp.advertise.mask }}
-  neighbor {{ bgp.neighbor }} activate
-  neighbor {{ bgp.neighbor }} prefix-list ADVERTISE out
+{% for n in bgp.neighbors %}
+  neighbor {{ n.ip }} activate
+  neighbor {{ n.ip }} prefix-list ADVERTISE out
+{% endfor %}
  exit-address-family
 {% endif %}

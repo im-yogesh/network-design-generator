@@ -58,18 +58,15 @@ export function streamReport(doc, res) {
 
   h1('1. Customer Requirements');
   kv([
+    ['Customer ID', input.customerId],
     ['Industry', input.industry],
-    ['Project type', input.projectType],
-    ['Site address', input.siteAddress],
     ['Users', `${input.users?.current} current, ${input.users?.growthPct || 0}% growth -> designed for ${design.designUsers}`],
-    ['Sites', design.multiSite ? `Multiple (${input.sites?.branches || 0} branches)` : 'Single site'],
+    ['Sites', `${design.siteCount}${input.sites?.drSite ? ' (DR site required)' : ''}`],
+    ['Deployment type', design.deploymentType],
     ['WAN', `${input.bandwidthMbps} Mbps ${input.connectionType}`],
-    ['High availability', design.redundancy ? 'Yes' : 'No'],
-    ['Departments', input.departments.map((d) => d.name).join(', ')],
-    ['Servers', design.servers.join(', ') || 'None'],
-    ['Firewall / VPN / ACL', `${input.security?.firewall ? 'Yes' : 'No'} / ${design.vpn} / ${design.acl ? 'Yes' : 'No'}`],
+    ['High availability', design.haMode],
+    ['Departments', design.vlans.map((v) => `${v.name} (VLAN ${v.id}, ${v.kind})`).join(', ')],
   ]);
-  if (input.notes) kv([['Notes', input.notes]]);
 
   h1('2. High Level Design (HLD)');
   h2('Architecture');
@@ -111,12 +108,12 @@ export function streamReport(doc, res) {
   h2('WAN links');
   table(
     [
-      { key: 'isp', label: 'Link', w: 0.2 },
+      { key: 'link', label: 'Link', w: 0.2 },
       { key: 'cidr', label: 'Network', w: 0.3 },
       { key: 'pe', label: 'Provider PE', w: 0.25 },
       { key: 'ce', label: 'Customer CE', w: 0.25 },
     ],
-    ipPlan.wan
+    ipPlan.wan.map((w) => ({ ...w, link: w.router == null ? w.isp : `${w.isp} / R${w.router + 1}` }))
   );
   h2('Transit networks');
   table([{ key: 'name', label: 'Segment', w: 0.5 }, { key: 'network', label: 'Network', w: 0.5 }], ipPlan.transits);
@@ -126,11 +123,11 @@ export function streamReport(doc, res) {
     if (ipPlan.public.staticNat) kv([['Static NAT', `${ipPlan.public.staticNat.outside} -> ${ipPlan.public.staticNat.inside} (Web)`]]);
   }
   if (ipPlan.servers.length) {
-    h2('Server placement (VLAN 100)');
+    h2(`Server placement (VLAN ${design.vlans.find((v) => v.kind === 'server').id})`);
     table([{ key: 'hostname', label: 'Server', w: 0.4 }, { key: 'ip', label: 'IP', w: 0.3 }, { key: 'core', label: 'Core switch', w: 0.3 }],
       ipPlan.servers.map((s) => ({ ...s, core: `CORE${s.core + 1}` })));
   }
-  h2('Management IPs (VLAN 99)');
+  h2(`Management IPs (VLAN ${design.vlans.find((v) => v.kind === 'mgmt').id})`);
   table([{ key: 'device', label: 'Device', w: 0.5 }, { key: 'ip', label: 'IP', w: 0.5 }], ipPlan.managementIps);
 
   h1('5. Bill of Materials');

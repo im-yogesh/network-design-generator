@@ -1,7 +1,16 @@
 {% if nat %}
 ip access-list standard NAT_LAN
  permit {{ nat.lan.network }} {{ nat.lan.wildcard }}
-ip nat inside source list NAT_LAN interface {{ nat.outside }} overload
+{% if nat.outsides | length > 1 %}
+{% for o in nat.outsides %}
+route-map NAT_{{ o.isp }} permit 10
+ match ip address NAT_LAN
+ match interface {{ o.name }}
+ip nat inside source route-map NAT_{{ o.isp }} interface {{ o.name }} overload
+{% endfor %}
+{% else %}
+ip nat inside source list NAT_LAN interface {{ nat.outsides[0].name }} overload
+{% endif %}
 {% if nat.static %}
 ip nat inside source static {{ nat.static.inside }} {{ nat.static.outside }}
 {% endif %}

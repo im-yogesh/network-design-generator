@@ -61,7 +61,7 @@ export default function DesignView({ design: doc }) {
             <h3>Architecture</h3>
             <ul>
               <li>Routing: internal <b>{design.routing.internal}</b>, external <b>{design.routing.external}</b></li>
-              <li>Redundancy: {design.redundancy ? 'HSRP on core + edge, dual ISP' : 'None'}</li>
+              <li>High availability: {design.haMode}</li>
               <li>NAT: {design.nat ? 'Yes (PAT on edge)' : 'No'}</li>
               <li>{design.vlans.length} VLANs</li>
             </ul>

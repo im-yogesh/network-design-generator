@@ -3,6 +3,9 @@ interface range {{ r.range }}
  description {{ r.name }} users
  switchport mode access
  switchport access vlan {{ r.vlan }}
+{% if voiceVlan %}
+ switchport voice vlan {{ voiceVlan }}
+{% endif %}
  spanning-tree portfast
  spanning-tree bpduguard enable
 {% endfor %}

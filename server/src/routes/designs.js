@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import { Design } from '../models.js';
-import { buildDesign } from '../engine/design.js';
+import { createDesign } from '../engine/design.js';
 import { buildPlan } from '../engine/plan.js';
 import { renderAll } from '../engine/config.js';
 import { buildBom, streamReport } from '../engine/report.js';
-import { allocatePrivateBlock, allocateWan, allocatePublic, reserveCustomerBlock, releaseDesign } from '../engine/ipam.js';
+import { allocatePrivateBlock, allocateWan, reserveCustomerBlock, releaseDesign } from '../engine/ipam.js';
 
 const r = Router();
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -15,7 +15,7 @@ r.post(
   '/',
   wrap(async (req, res) => {
     const input = req.body;
-    const design = buildDesign(input);
+    const design = await createDesign(input);
     const _id = new mongoose.Types.ObjectId();
     const customer = input.customerName.trim();
     try {
@@ -24,10 +24,8 @@ r.post(
           ? await reserveCustomerBlock(input.customerNetwork || '', customer, _id)
           : await allocatePrivateBlock(customer, _id);
       const wanLinks = [];
-      for (let i = 0; i < design.router.count; i++) wanLinks.push(await allocateWan(customer, _id));
-      const publicBlock = input.publicIps?.needed ? await allocatePublic(input.publicIps.count || 1, customer, _id) : null;
-
-      const plan = buildPlan(design, input, { lanBlock, wanLinks, publicBlock });
+      for (let i = 0; i < design.wan.length; i++) wanLinks.push(await allocateWan(customer, _id));
+      const plan = buildPlan(design, input, { lanBlock, wanLinks, publicBlock: null });
       const doc = await Design.create({
         _id,
         customerName: customer,

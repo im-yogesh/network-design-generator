@@ -1,14 +1,18 @@
 import { parseCidr, intToIp, subnetInfo, carve, prefixForHosts } from './ip.js';
 
-const EDGE_VLAN = 900;
-const INSIDE_VLAN = 901;
+export const EDGE_VLAN = 900;
+export const INSIDE_VLAN = 901;
+// VLAN kinds that get access ports; voice rides on the same ports.
+export const PORT_KINDS = ['user', 'guest'];
+const CLIENT_KINDS = [...PORT_KINDS, 'voice'];
+const WAN_IFACES = ['GigabitEthernet0/0/0', 'GigabitEthernet0/0/2'];
 
 // VLAN ID becomes the 3rd octet when the block is a /16 or larger (10.50.10.0/24 = VLAN 10).
 function lanSubnets(block, vlans, transitKeys) {
   const b = parseCidr(block);
   const need = (v) => prefixForHosts(v.users + 10);
   const transits = transitKeys.map((key) => ({ key, prefix: 29 }));
-  if (b.prefix <= 16 && vlans.every((v) => need(v) >= 24)) {
+  if (b.prefix <= 16 && vlans.every((v) => v.id < 255 && need(v) >= 24)) {
     const out = carve(`${intToIp(b.base + 255 * 256)}/24`, transits);
     for (const v of vlans) out[v.id] = subnetInfo(`${intToIp(b.base + v.id * 256)}/24`);
     return out;
@@ -35,8 +39,11 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
   const subnets = lanSubnets(lanBlock, design.vlans, transitKeys);
   const vlanOf = (id) => subnets[id];
 
-  const mgmt = vlanOf(99);
-  const srvNet = design.servers.length ? vlanOf(100) : null;
+  const kindOf = (k) => design.vlans.find((v) => v.kind === k);
+  const mgmtVlan = kindOf('mgmt');
+  const srvVlan = kindOf('server');
+  const mgmt = vlanOf(mgmtVlan.id);
+  const srvNet = design.servers.length ? vlanOf(srvVlan.id) : null;
   const servers = design.servers.map((name, i) => ({
     name,
     hostname: `SRV-${name.toUpperCase().replace(/\W+/g, '')}`,
@@ -57,9 +64,9 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
   const coreNextHop = fw ? fwIn.vip : rtrL.vip;
   const routerLanNextHop = fw ? fwOut.vip : coreL.vip;
 
-  const wan = wanLinks.map((cidr, i) => {
-    const s = subnetInfo(cidr);
-    return { cidr: s.cidr, mask: s.mask, pe: s.firstHost, ce: s.secondHost, isp: `ISP-${i + 1}` };
+  const wan = design.wan.map((l, i) => {
+    const s = subnetInfo(wanLinks[i]);
+    return { cidr: s.cidr, mask: s.mask, pe: s.firstHost, ce: s.secondHost, isp: `ISP-${l.isp}`, router: l.router, remoteAs: 64990 + l.isp * 10 };
   });
   const pub = publicBlock ? subnetInfo(publicBlock) : null;
   const webIp = serverIp('Web');
@@ -80,7 +87,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
 
   // Edge routers
   for (let i = 0; i < R; i++) {
-    const w = wan[i];
+    const links = wan.filter((w) => w.router === i).map((w, j) => ({ ...w, iface: WAN_IFACES[j] }));
     devices.push({
       ...common,
       hostname: `R${i + 1}`,
@@ -88,7 +95,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
       model: design.router.model,
       routerId: nextRid(),
       interfaces: [
-        { name: 'GigabitEthernet0/0/0', description: `WAN to ${w.isp}`, ip: w.ce, mask: w.mask, nat: design.nat ? 'outside' : null },
+        ...links.map((w) => ({ name: w.iface, description: `WAN to ${w.isp}`, ip: w.ce, mask: w.mask, nat: design.nat ? 'outside' : null })),
         {
           name: 'GigabitEthernet0/0/1',
           description: fw ? `To FW${i + 1} outside` : `To CORE${i + 1}`,
@@ -98,9 +105,11 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
           hsrp: rtrL.hsrp ? { group: 1, vip: rtrL.vip, priority: i === 0 ? 110 : 100, track: 1 } : null,
         },
       ],
-      track: rtrL.hsrp ? { id: 1, interface: 'GigabitEthernet0/0/0' } : null,
+      track: rtrL.hsrp ? { id: 1, interface: links[0].iface } : null,
       staticRoutes: [
-        ...(design.routing.external === 'Static' ? [{ net: '0.0.0.0', mask: '0.0.0.0', nh: w.pe, name: 'DEFAULT' }] : []),
+        ...(design.routing.external === 'Static'
+          ? links.map((w, j) => ({ net: '0.0.0.0', mask: '0.0.0.0', nh: w.pe, ad: j ? 10 : null, name: j ? 'DEFAULT_BACKUP' : 'DEFAULT' }))
+          : []),
         ...(!useOspf || fw ? [{ net: lan.network, mask: lan.mask, nh: routerLanNextHop, name: 'CUSTOMER_LAN' }] : []),
       ],
       ospf: useOspf && !fw ? { networks: [{ net: edge.network, wildcard: edge.wildcard }], defaultOriginate: true, passive: [] } : null,
@@ -108,13 +117,14 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
         design.routing.external === 'BGP'
           ? {
               asn: 65001,
-              neighbor: w.pe,
-              remoteAs: 65000,
+              neighbors: links.map((w) => ({ ip: w.pe, remoteAs: w.remoteAs, isp: w.isp })),
               advertise: pub ? { net: pub.network, mask: pub.mask } : { net: lan.network, mask: lan.mask },
             }
           : null,
-      nat: design.nat ? { lan: { network: lan.network, wildcard: lan.wildcard }, outside: 'GigabitEthernet0/0/0', static: staticNat } : null,
-      netflow: design.monitoring.netflow ? { collector: nms, interface: 'GigabitEthernet0/0/0' } : null,
+      nat: design.nat
+        ? { lan: { network: lan.network, wildcard: lan.wildcard }, outsides: links.map((w) => ({ name: w.iface, isp: w.isp })), static: staticNat }
+        : null,
+      netflow: design.monitoring.netflow ? { collector: nms, interface: links[0].iface } : null,
     });
   }
 
@@ -137,8 +147,9 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
   }
 
   // Core switches
-  const userVlans = design.vlans.filter((v) => v.kind === 'user');
-  const guest = userVlans.find((v) => v.name === 'GUEST');
+  const clientVlans = design.vlans.filter((v) => CLIENT_KINDS.includes(v.kind));
+  const guest = kindOf('guest');
+  const voice = kindOf('voice');
   const helper = serverIp('DHCP');
   const dnsIp = serverIp('DNS') || '8.8.8.8';
   const vlanRows = design.vlans.map((v) => ({ ...v, net: vlanOf(v.id) }));
@@ -160,7 +171,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
       ifaces.push({ name: `${P}${port++}`, description: `To ACC${a + 1}`, mode: 'trunk', allowed });
     }
     for (const s of servers.filter((s) => s.core === i)) {
-      ifaces.push({ name: `${P}${port++}`, description: s.hostname, mode: 'access', vlan: 100, portfast: true });
+      ifaces.push({ name: `${P}${port++}`, description: s.hostname, mode: 'access', vlan: srvVlan.id, portfast: true });
     }
     if (C === 2) {
       for (const p of [15, 16]) ifaces.push({ name: `${P}${p}`, description: 'Core interlink', mode: 'trunk', allowed: `${allowed},${EDGE_VLAN},${INSIDE_VLAN}`, channel: 1 });
@@ -173,7 +184,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
       ip: C === 2 ? v.net.at(2 + i) : v.net.firstHost,
       mask: v.net.mask,
       hsrp: hsrp(v.id, v.net.firstHost),
-      helper: v.kind === 'user' && helper ? helper : null,
+      helper: CLIENT_KINDS.includes(v.kind) && helper ? helper : null,
       acl: guest && v.id === guest.id && design.acl ? 'GUEST_IN' : null,
     }));
     svis.push({
@@ -208,7 +219,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
         : null,
       dhcpPools:
         !helper && i === 0
-          ? userVlans.map((v) => ({ name: v.name, net: vlanOf(v.id), dns: dnsIp, domain: common.domain }))
+          ? clientVlans.map((v) => ({ name: v.name, net: vlanOf(v.id), dns: dnsIp, domain: common.domain }))
           : null,
       guestAcl: guest && design.acl ? { guest: vlanOf(guest.id), lan } : null,
     });
@@ -218,7 +229,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
   const A = design.access.count;
   const access = Array.from({ length: A }, (_, a) => ({ ranges: [], used: 0, idx: a }));
   let sw = 0;
-  for (const v of userVlans) {
+  for (const v of design.vlans.filter((x) => PORT_KINDS.includes(x.kind))) {
     let left = v.users;
     while (left > 0 && sw < A) {
       const s = access[sw];
@@ -237,6 +248,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
       model: design.access.model,
       vlans: design.vlans.filter((v) => v.kind !== 'server').map((v) => ({ id: v.id, name: v.name })),
       portRanges: s.ranges.map((r) => ({ ...r, range: `${design.access.portPrefix}${r.from} - ${r.to}` })),
+      voiceVlan: voice?.id,
       interfaces: [
         ...Array.from({ length: C }, (_, c) => ({
           name: `${design.access.uplinkPrefix}${c + 1}`,
@@ -244,7 +256,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
           mode: 'trunk',
           allowed,
         })),
-        { name: 'Vlan99', description: 'MGMT', ip: mgmt.at(11 + s.idx), mask: mgmt.mask },
+        { name: `Vlan${mgmtVlan.id}`, description: mgmtVlan.name, ip: mgmt.at(11 + s.idx), mask: mgmt.mask },
       ],
       defaultGateway: mgmt.firstHost,
       users: s.used,
@@ -272,7 +284,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
     managementIps: devices
       .filter((d) => d.role === 'access')
       .map((d) => ({ device: d.hostname, ip: d.interfaces.at(-1).ip }))
-      .concat(devices.filter((d) => d.role === 'core').map((d) => ({ device: d.hostname, ip: d.interfaces.find((x) => x.name === 'Vlan99').ip }))),
+      .concat(devices.filter((d) => d.role === 'core').map((d) => ({ device: d.hostname, ip: d.interfaces.find((x) => x.name === `Vlan${mgmtVlan.id}`).ip }))),
   };
 
   return { devices, ipPlan, topology: buildTopology(design, devices, servers, wan, access) };
@@ -289,11 +301,11 @@ function buildTopology(design, devices, servers, wan, access) {
   const cores = byRole('core');
   const accs = byRole('access');
 
-  wan.forEach((w, i) => add(w.isp, w.isp, 'isp', 0, { sub: w.cidr }));
-  routers.forEach((r, i) => {
-    add(r.hostname, r.hostname, 'router', 1, { sub: r.model });
-    link(wan[i].isp, r.hostname, wan[i].cidr);
-  });
+  for (const isp of new Set(wan.map((w) => w.isp))) {
+    add(isp, isp, 'isp', 0, { sub: wan.filter((w) => w.isp === isp).map((w) => w.cidr).join(', ') });
+  }
+  routers.forEach((r) => add(r.hostname, r.hostname, 'router', 1, { sub: r.model }));
+  wan.forEach((w) => link(w.isp, `R${w.router + 1}`, w.cidr));
   const fwCount = design.firewall?.count || 0;
   for (let i = 0; i < fwCount; i++) {
     const id = `FW${i + 1}`;
