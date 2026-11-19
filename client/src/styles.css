@@ -40,7 +40,17 @@ button.danger { color: #dc2626; }
 .card.warn { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
 
 .topology { height: 640px; border: 1px solid #e2e8f0; border-radius: 6px; }
-.topology .sub { font-size: 10px; opacity: 0.85; }
+.topology .react-flow__node-device {
+  background: transparent; border: none; padding: 0; box-shadow: none; width: auto; font-size: inherit;
+}
+.topo-node {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 110px; padding: 4px 6px; background: transparent;
+}
+.topo-icon { display: flex; align-items: center; justify-content: center; filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.15)); }
+.topo-label { margin-top: 4px; font-size: 12px; font-weight: 600; color: #0f172a; text-align: center; line-height: 1.2; }
+.topo-sub { font-size: 10px; color: #64748b; text-align: center; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topo-handle { width: 6px !important; height: 6px !important; background: #94a3b8 !important; border: none !important; opacity: 0; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e2e8f0; }

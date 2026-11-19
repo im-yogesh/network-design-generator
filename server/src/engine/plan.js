@@ -336,7 +336,7 @@ function buildTopology(design, devices, servers, wan, access) {
   for (const list of Object.values(byLayer)) {
     list.forEach((n, i) => {
       n.x = Math.round((i - (list.length - 1) / 2) * GAP);
-      n.y = n.layer * 130;
+      n.y = n.layer * 160;
     });
   }
   for (const n of byLayer[5] || []) n.x = nodes.find((a) => a.id === n.id.replace('USERS', 'ACC')).x;
