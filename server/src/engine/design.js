@@ -181,6 +181,7 @@ function buildDesign(req, ai) {
     dualIsp: req.ispHa,
     siteCount: req.siteCount,
     multiSite: req.siteCount > 1,
+    drSite: req.drSite,
     deploymentType: req.deploymentType,
     connectionType: req.connectionType,
     mpls: req.mpls,

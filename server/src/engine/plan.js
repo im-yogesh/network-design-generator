@@ -345,17 +345,21 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
 function buildTopology(design, devices, servers, wan, access) {
   const nodes = [];
   const edges = [];
-  const add = (id, label, type, layerIdx, extra = {}) => nodes.push({ id, label, type, layer: layerIdx, ...extra });
+  const add = (id, label, type, layerIdx, site, extra = {}) =>
+    nodes.push({ id, label, type, layer: layerIdx, site, ...extra });
   const link = (source, target, label = '') => edges.push({ id: `${source}-${target}`, source, target, label });
   const byRole = (r) => devices.filter((d) => d.role === r);
   const mpls = !!design.mpls;
+  const siteCount = Math.max(1, design.siteCount || 1);
+  const usersPerSite = Math.max(1, Math.ceil((design.designUsers || 1) / siteCount));
 
   const routers = byRole('router');
   const cores = byRole('core');
   const accs = byRole('access');
   const pes = [...new Set(wan.map((w) => w.isp))];
+  const primaryIsp = pes[0];
 
-  // Layer offset: MPLS inserts cloud above PE
+  // Layer offset: MPLS inserts cloud above PE. site 0 = shared WAN fabric.
   const L0 = 0;
   const Lpe = mpls ? 1 : 0;
   const Lce = mpls ? 2 : 1;
@@ -364,27 +368,23 @@ function buildTopology(design, devices, servers, wan, access) {
   const Lacc = mpls ? 5 : 4;
   const Lusers = mpls ? 6 : 5;
 
+  // —— Shared provider / WAN fabric (site 0) ——
   if (mpls) {
-    add('MPLS', 'MPLS Cloud', 'mpls', L0, { sub: 'Provider backbone / VRF' });
+    add('MPLS', 'MPLS Cloud', 'mpls', L0, 0, { sub: `${siteCount} sites · provider VRF` });
     for (const pe of pes) {
-      add(pe, pe, 'isp', Lpe, { sub: `MPLS PE · ${wan.filter((w) => w.isp === pe).map((w) => w.cidr).join(', ')}` });
+      add(pe, pe, 'isp', Lpe, 0, { sub: `MPLS PE · ${wan.filter((w) => w.isp === pe).map((w) => w.cidr).join(', ')}` });
       link('MPLS', pe, 'VRF');
-    }
-    // Extra remote sites attach conceptually into the MPLS cloud
-    for (let s = 2; s <= design.siteCount; s++) {
-      const id = `SITE${s}-CE`;
-      add(id, id, 'router', Lce, { sub: `Remote site ${s} CE` });
-      link('MPLS', id, 'eBGP');
     }
   } else {
     for (const isp of pes) {
-      add(isp, isp, 'isp', Lpe, { sub: wan.filter((w) => w.isp === isp).map((w) => w.cidr).join(', ') });
+      add(isp, isp, 'isp', Lpe, 0, { sub: wan.filter((w) => w.isp === isp).map((w) => w.cidr).join(', ') });
     }
   }
 
+  // —— Site 1 = HQ (full generated stack) ——
   routers.forEach((r) =>
-    add(r.hostname, mpls ? `CE-${r.hostname}` : r.hostname, 'router', Lce, {
-      sub: mpls ? `${r.model} (Customer Edge)` : r.model,
+    add(r.hostname, mpls ? `CE-${r.hostname}` : r.hostname, 'router', Lce, 1, {
+      sub: mpls ? `${r.model} · HQ CE` : `${r.model} · HQ`,
     })
   );
   wan.forEach((w) => link(w.isp, `R${w.router + 1}`, mpls ? `eBGP ${w.cidr}` : w.cidr));
@@ -392,39 +392,70 @@ function buildTopology(design, devices, servers, wan, access) {
   const fwCount = design.firewall?.count || 0;
   for (let i = 0; i < fwCount; i++) {
     const id = `FW${i + 1}`;
-    add(id, id, 'firewall', Lfw, { sub: `${design.firewall.model}${fwCount === 2 ? (i ? ' (standby)' : ' (active)') : ''}` });
+    add(id, id, 'firewall', Lfw, 1, {
+      sub: `${design.firewall.model}${fwCount === 2 ? (i ? ' (standby)' : ' (active)') : ''} · HQ`,
+    });
     link(routers[i].hostname, id);
   }
   if (fwCount === 2) link('FW1', 'FW2', 'failover');
   cores.forEach((c, i) => {
-    add(c.hostname, c.hostname, 'core', Lcore, { sub: c.model });
+    add(c.hostname, c.hostname, 'core', Lcore, 1, { sub: `${c.model} · HQ` });
     link(fwCount ? `FW${i + 1}` : routers[i].hostname, c.hostname);
   });
   if (cores.length === 2) link('CORE1', 'CORE2', 'Po1 trunk / HSRP');
   accs.forEach((a, i) => {
-    add(a.hostname, a.hostname, 'access', Lacc, { sub: a.model });
+    add(a.hostname, a.hostname, 'access', Lacc, 1, { sub: `${a.model} · HQ` });
     cores.forEach((c) => link(c.hostname, a.hostname));
-    add(`USERS${i + 1}`, `${access[i].used} users`, 'users', Lusers, { sub: access[i].ranges.map((r) => r.name).join(', ') });
+    add(`USERS${i + 1}`, `HQ · ${access[i].used} users`, 'users', Lusers, 1, {
+      sub: access[i].ranges.map((r) => r.name).join(', '),
+    });
     link(a.hostname, `USERS${i + 1}`);
   });
   servers.forEach((s) => {
-    add(s.hostname, s.hostname, 'server', Lacc, { sub: s.ip });
+    add(s.hostname, s.hostname, 'server', Lacc, 1, { sub: s.ip });
     link(cores[s.core].hostname, s.hostname);
   });
 
-  // Layered layout shared by UI and PDF
-  const GAP = 190;
-  const byLayer = {};
-  for (const n of nodes) (byLayer[n.layer] ||= []).push(n);
-  for (const list of Object.values(byLayer)) {
+  // —— Sites 2..N = remote campuses (CE + access + users) ——
+  for (let s = 2; s <= siteCount; s++) {
+    const ce = `SITE${s}-CE`;
+    const acc = `SITE${s}-ACC`;
+    const users = `SITE${s}-USERS`;
+    const role = design.drSite && s === siteCount ? 'DR' : `Site ${s}`;
+    add(ce, ce, 'router', Lce, s, { sub: `${role} CE` });
+    add(acc, acc, 'access', Lacc, s, { sub: `${role} access` });
+    add(users, `${role} · ~${usersPerSite} users`, 'users', Lusers, s, { sub: 'Remote LAN' });
+    link(ce, acc, 'LAN');
+    link(acc, users);
+
+    if (mpls) {
+      link('MPLS', ce, 'eBGP');
+    } else if (primaryIsp) {
+      link(primaryIsp, ce, s === siteCount && design.drSite ? 'VPN / DR' : 'VPN / WAN');
+    }
+  }
+
+  // Column layout: shared WAN centered, each site in its own column
+  const GAP = 170;
+  const SITE_W = 380;
+  const byKey = {};
+  for (const n of nodes) (byKey[`${n.site}:${n.layer}`] ||= []).push(n);
+  for (const list of Object.values(byKey)) {
     list.forEach((n, i) => {
-      n.x = Math.round((i - (list.length - 1) / 2) * GAP);
+      const col = n.site === 0 ? (siteCount - 1) / 2 : n.site - 1;
+      n.x = Math.round(col * SITE_W + (i - (list.length - 1) / 2) * GAP);
       n.y = n.layer * 160;
     });
   }
-  for (const n of byLayer[Lusers] || []) {
+  // Align HQ user clouds under their access switches
+  for (const n of nodes.filter((x) => x.site === 1 && x.id.startsWith('USERS'))) {
     const acc = nodes.find((a) => a.id === n.id.replace('USERS', 'ACC'));
     if (acc) n.x = acc.x;
+  }
+  for (let s = 2; s <= siteCount; s++) {
+    const acc = nodes.find((a) => a.id === `SITE${s}-ACC`);
+    const users = nodes.find((a) => a.id === `SITE${s}-USERS`);
+    if (acc && users) users.x = acc.x;
   }
   return { nodes, edges };
 }
