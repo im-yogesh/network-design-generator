@@ -1,6 +1,7 @@
 import { ROUTERS, FIREWALLS, CORE_SWITCH, ACCESS_SWITCH } from './profiles.js';
 import { EDGE_VLAN, INSIDE_VLAN, PORT_KINDS } from './plan.js';
-import { askGemini } from './ai.js';
+import { askAI } from './ai.js';
+import { localDesign } from './local.js';
 
 const bad = (msg) => Object.assign(new Error(msg), { status: 400 });
 const badAi = (msg) => Object.assign(new Error(`AI returned an invalid design: ${msg}`), { status: 502 });
@@ -210,5 +211,16 @@ export async function createDesign(input) {
     fixed: { routers: count, coreSwitches: count, firewallsIfUsed: count, ispLinks: req.ispHa ? 2 : 1 },
     catalog: { routers: ROUTERS, firewalls: FIREWALLS, coreSwitch: CORE_SWITCH, accessSwitch: ACCESS_SWITCH },
   });
-  return buildDesign(req, await askGemini({ system: SYSTEM, prompt, schema: SCHEMA }));
+
+  if (process.env.DESIGN_ENGINE === 'local') return buildDesign(req, localDesign(req));
+
+  let ai;
+  try {
+    ai = await askAI({ system: SYSTEM, prompt, schema: SCHEMA });
+  } catch (e) {
+    if (process.env.DESIGN_FALLBACK === 'off') throw e;
+    ai = localDesign(req);
+    ai.warnings = [...(ai.warnings || []), `AI unavailable: ${e.message}`];
+  }
+  return buildDesign(req, ai);
 }
