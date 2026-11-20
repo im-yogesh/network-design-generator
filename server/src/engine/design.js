@@ -57,12 +57,14 @@ function normalizeInput(input) {
 
   const s = input.sites || {};
   const siteCount = Math.max(1, Math.floor(Number(s.count)) || 1);
-  const deploymentType = input.deploymentType || 'Enterprise LAN';
+  const connectionType = input.connectionType || 'Internet';
+  // Connection type MPLS drives ISP MPLS VPN design (BGP CE-PE topology)
+  const mpls = connectionType === 'MPLS' || input.deploymentType === 'ISP MPLS VPN';
+  const deploymentType = mpls ? 'ISP MPLS VPN' : input.deploymentType || 'Enterprise LAN';
   if (!DEPLOYMENT_TYPES.includes(deploymentType)) throw bad(`Unknown deployment type: ${deploymentType}`);
   const haMode = input.haMode || 'None';
   if (!HA_MODES[haMode]) throw bad(`Unknown high availability mode: ${haMode}`);
   const [deviceHa, ispHa] = HA_MODES[haMode];
-  const connectionType = input.connectionType || 'Internet';
   const srv = input.servers || {};
   const servers = [];
   if (srv.dhcp) servers.push('DHCP');
@@ -78,8 +80,9 @@ function normalizeInput(input) {
     siteCount,
     drSite: siteCount > 1 && !!s.drSite,
     deploymentType,
-    connectionType,
-    internet: connectionType.includes('Internet') || connectionType === 'SD-WAN',
+    connectionType: mpls ? 'MPLS' : connectionType,
+    mpls,
+    internet: !mpls && (connectionType.includes('Internet') || connectionType === 'SD-WAN'),
     bandwidthMbps: mbps,
     haMode,
     deviceHa,
@@ -94,7 +97,7 @@ const SYSTEM = `You are a senior Cisco enterprise network architect. Turn the cu
 Rules:
 - Use only device models from the catalog. Router and firewall maxMbps must be >= bandwidthMbps. Prefer the cheapest model that fits; step up only if growth justifies it.
 - routing.internal: "OSPF" when siteCount > 1 or deploymentType is "Enterprise WAN", otherwise "Static".
-- routing.external: "BGP" when deploymentType is "ISP MPLS VPN", otherwise "Static".
+- routing.external: "BGP" when deploymentType is "ISP MPLS VPN" or connectionType is MPLS, otherwise "Static".
 - firewallModel: null unless the industry clearly needs one (explain why in reasons).
 - vlans: return every VLAN id from the requirements exactly once with an expected host count. user + guest VLANs together must cover at least designUsers hosts. voice ~ one phone per user. mgmt ~ 20. server ~ 20.
 - accessCount: number of ${ACCESS_SWITCH.ports}-port access switches; at least ceil(total user + guest hosts / ${ACCESS_SWITCH.ports}).
@@ -133,7 +136,8 @@ function buildDesign(req, ai) {
   const router = ROUTERS.find((m) => m.model === ai.routerModel);
   if (!router) throw badAi(`unknown router "${ai.routerModel}"`);
   if (router.maxMbps < mbps) throw badAi(`${router.model} supports only ${router.maxMbps} Mbps`);
-  const { internal, external } = ai.routing || {};
+  let { internal, external } = ai.routing || {};
+  if (req.mpls) external = 'BGP'; // MPLS VPN always uses CE-PE eBGP
   if (!['Static', 'OSPF'].includes(internal) || !['Static', 'BGP'].includes(external)) throw badAi('unknown routing protocol');
   if (external === 'BGP' && !router.bgp) throw badAi(`${router.model} does not support BGP`);
   if (req.deviceHa && !router.hsrp) throw badAi(`${router.model} does not support HSRP`);
@@ -169,7 +173,7 @@ function buildDesign(req, ai) {
     : (req.ispHa ? [1, 2] : [1]).map((isp) => ({ router: 0, isp }));
 
   return {
-    engine: 'gemini',
+    engine: ai._engine || 'gemini',
     designUsers: req.designUsers,
     haMode: req.haMode,
     redundancy: req.deviceHa,
@@ -177,6 +181,8 @@ function buildDesign(req, ai) {
     siteCount: req.siteCount,
     multiSite: req.siteCount > 1,
     deploymentType: req.deploymentType,
+    connectionType: req.connectionType,
+    mpls: req.mpls,
     internet: req.internet,
     routing: { internal, external },
     reasons: strings(ai.reasons),
@@ -191,7 +197,7 @@ function buildDesign(req, ai) {
     dhcp: req.dhcp,
     nat: req.internet,
     acl: false,
-    vpn: 'none',
+    vpn: req.mpls ? 'mpls' : 'none',
     monitoring: {},
   };
 }

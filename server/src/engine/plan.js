@@ -64,9 +64,18 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
   const coreNextHop = fw ? fwIn.vip : rtrL.vip;
   const routerLanNextHop = fw ? fwOut.vip : coreL.vip;
 
+  const mpls = !!design.mpls;
   const wan = design.wan.map((l, i) => {
     const s = subnetInfo(wanLinks[i]);
-    return { cidr: s.cidr, mask: s.mask, pe: s.firstHost, ce: s.secondHost, isp: `ISP-${l.isp}`, router: l.router, remoteAs: 64990 + l.isp * 10 };
+    return {
+      cidr: s.cidr,
+      mask: s.mask,
+      pe: s.firstHost,
+      ce: s.secondHost,
+      isp: mpls ? `PE-${l.isp}` : `ISP-${l.isp}`,
+      router: l.router,
+      remoteAs: 64990 + l.isp * 10,
+    };
   });
   const pub = publicBlock ? subnetInfo(publicBlock) : null;
   const webIp = serverIp('Web');
@@ -86,7 +95,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
   const nextRid = () => (++rid, `${rid}.${rid}.${rid}.${rid}`);
   const devices = [];
 
-  // ISP PE (provider edge) — one device per ISP, mirrors CE WAN side
+  // Provider edge — ISP Internet PE or MPLS PE (one device per provider link group)
   const byIsp = new Map();
   for (const w of wan) (byIsp.get(w.isp) || byIsp.set(w.isp, []).get(w.isp)).push(w);
   for (const [isp, links] of byIsp) {
@@ -94,19 +103,19 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
       ...common,
       hostname: isp,
       role: 'isp',
-      model: 'ISP PE',
+      model: mpls ? 'MPLS PE' : 'ISP PE',
       ipRouting: true,
       routerId: nextRid(),
       interfaces: links.map((w, j) => ({
         name: `GigabitEthernet0/${j}`,
-        description: `PE to customer R${w.router + 1}`,
+        description: mpls ? `MPLS PE to CE-R${w.router + 1}` : `PE to customer R${w.router + 1}`,
         ip: w.pe,
         mask: w.mask,
       })),
       bgp: useBgp
         ? {
             asn: links[0].remoteAs,
-            neighbors: links.map((w) => ({ ip: w.ce, remoteAs: 65001, peer: `R${w.router + 1}` })),
+            neighbors: links.map((w) => ({ ip: w.ce, remoteAs: 65001, peer: mpls ? `CE-R${w.router + 1}` : `R${w.router + 1}` })),
             advertise: pub ? { net: pub.network, mask: pub.mask } : null,
           }
         : null,
@@ -122,7 +131,7 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
     });
   }
 
-  // Edge routers
+  // Edge routers (CE when MPLS)
   for (let i = 0; i < R; i++) {
     const links = wan.filter((w) => w.router === i).map((w, j) => ({ ...w, iface: WAN_IFACES[j] }));
     devices.push({
@@ -132,7 +141,13 @@ export function buildPlan(design, input, { lanBlock, wanLinks, publicBlock }) {
       model: design.router.model,
       routerId: nextRid(),
       interfaces: [
-        ...links.map((w) => ({ name: w.iface, description: `WAN to ${w.isp}`, ip: w.ce, mask: w.mask, nat: design.nat ? 'outside' : null })),
+        ...links.map((w) => ({
+          name: w.iface,
+          description: mpls ? `CE uplink to ${w.isp}` : `WAN to ${w.isp}`,
+          ip: w.ce,
+          mask: w.mask,
+          nat: design.nat ? 'outside' : null,
+        })),
         {
           name: 'GigabitEthernet0/0/1',
           description: fw ? `To FW${i + 1} outside` : `To CORE${i + 1}`,
@@ -333,36 +348,67 @@ function buildTopology(design, devices, servers, wan, access) {
   const add = (id, label, type, layerIdx, extra = {}) => nodes.push({ id, label, type, layer: layerIdx, ...extra });
   const link = (source, target, label = '') => edges.push({ id: `${source}-${target}`, source, target, label });
   const byRole = (r) => devices.filter((d) => d.role === r);
+  const mpls = !!design.mpls;
 
   const routers = byRole('router');
   const cores = byRole('core');
   const accs = byRole('access');
+  const pes = [...new Set(wan.map((w) => w.isp))];
 
-  for (const isp of new Set(wan.map((w) => w.isp))) {
-    add(isp, isp, 'isp', 0, { sub: wan.filter((w) => w.isp === isp).map((w) => w.cidr).join(', ') });
+  // Layer offset: MPLS inserts cloud above PE
+  const L0 = 0;
+  const Lpe = mpls ? 1 : 0;
+  const Lce = mpls ? 2 : 1;
+  const Lfw = mpls ? 3 : 2;
+  const Lcore = mpls ? 4 : 3;
+  const Lacc = mpls ? 5 : 4;
+  const Lusers = mpls ? 6 : 5;
+
+  if (mpls) {
+    add('MPLS', 'MPLS Cloud', 'mpls', L0, { sub: 'Provider backbone / VRF' });
+    for (const pe of pes) {
+      add(pe, pe, 'isp', Lpe, { sub: `MPLS PE · ${wan.filter((w) => w.isp === pe).map((w) => w.cidr).join(', ')}` });
+      link('MPLS', pe, 'VRF');
+    }
+    // Extra remote sites attach conceptually into the MPLS cloud
+    for (let s = 2; s <= design.siteCount; s++) {
+      const id = `SITE${s}-CE`;
+      add(id, id, 'router', Lce, { sub: `Remote site ${s} CE` });
+      link('MPLS', id, 'eBGP');
+    }
+  } else {
+    for (const isp of pes) {
+      add(isp, isp, 'isp', Lpe, { sub: wan.filter((w) => w.isp === isp).map((w) => w.cidr).join(', ') });
+    }
   }
-  routers.forEach((r) => add(r.hostname, r.hostname, 'router', 1, { sub: r.model }));
-  wan.forEach((w) => link(w.isp, `R${w.router + 1}`, w.cidr));
+
+  routers.forEach((r) =>
+    add(r.hostname, mpls ? `CE-${r.hostname}` : r.hostname, 'router', Lce, {
+      sub: mpls ? `${r.model} (Customer Edge)` : r.model,
+    })
+  );
+  wan.forEach((w) => link(w.isp, `R${w.router + 1}`, mpls ? `eBGP ${w.cidr}` : w.cidr));
+
   const fwCount = design.firewall?.count || 0;
   for (let i = 0; i < fwCount; i++) {
     const id = `FW${i + 1}`;
-    add(id, id, 'firewall', 2, { sub: `${design.firewall.model}${fwCount === 2 ? (i ? ' (standby)' : ' (active)') : ''}` });
+    add(id, id, 'firewall', Lfw, { sub: `${design.firewall.model}${fwCount === 2 ? (i ? ' (standby)' : ' (active)') : ''}` });
     link(routers[i].hostname, id);
   }
   if (fwCount === 2) link('FW1', 'FW2', 'failover');
   cores.forEach((c, i) => {
-    add(c.hostname, c.hostname, 'core', 3, { sub: c.model });
+    add(c.hostname, c.hostname, 'core', Lcore, { sub: c.model });
     link(fwCount ? `FW${i + 1}` : routers[i].hostname, c.hostname);
   });
   if (cores.length === 2) link('CORE1', 'CORE2', 'Po1 trunk / HSRP');
   accs.forEach((a, i) => {
-    add(a.hostname, a.hostname, 'access', 4, { sub: a.model });
+    add(a.hostname, a.hostname, 'access', Lacc, { sub: a.model });
     cores.forEach((c) => link(c.hostname, a.hostname));
-    add(`USERS${i + 1}`, `${access[i].used} users`, 'users', 5, { sub: access[i].ranges.map((r) => r.name).join(', ') });
+    add(`USERS${i + 1}`, `${access[i].used} users`, 'users', Lusers, { sub: access[i].ranges.map((r) => r.name).join(', ') });
     link(a.hostname, `USERS${i + 1}`);
   });
   servers.forEach((s) => {
-    add(s.hostname, s.hostname, 'server', 4, { sub: s.ip });
+    add(s.hostname, s.hostname, 'server', Lacc, { sub: s.ip });
     link(cores[s.core].hostname, s.hostname);
   });
 
@@ -376,6 +422,9 @@ function buildTopology(design, devices, servers, wan, access) {
       n.y = n.layer * 160;
     });
   }
-  for (const n of byLayer[5] || []) n.x = nodes.find((a) => a.id === n.id.replace('USERS', 'ACC')).x;
+  for (const n of byLayer[Lusers] || []) {
+    const acc = nodes.find((a) => a.id === n.id.replace('USERS', 'ACC'));
+    if (acc) n.x = acc.x;
+  }
   return { nodes, edges };
 }

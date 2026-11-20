@@ -66,9 +66,10 @@ export default function DesignView({ design: doc }) {
           <div className="card">
             <h3>Architecture</h3>
             <ul>
-              <li>Routing: internal <b>{design.routing.internal}</b>, external <b>{design.routing.external}</b></li>
+              <li>Deployment: {design.deploymentType}{design.mpls ? ' (MPLS VPN)' : ''}</li>
+              <li>Routing: internal <b>{design.routing.internal}</b>, external <b>{design.routing.external}</b>{design.mpls ? ' · CE–PE' : ''}</li>
               <li>High availability: {design.haMode}</li>
-              <li>NAT: {design.nat ? 'Yes (PAT on edge)' : 'No'}</li>
+              <li>NAT: {design.nat ? 'Yes (PAT on edge)' : design.mpls ? 'No (private MPLS)' : 'No'}</li>
               <li>{design.vlans.length} VLANs</li>
             </ul>
           </div>

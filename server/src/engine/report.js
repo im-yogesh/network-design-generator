@@ -12,7 +12,7 @@ export function buildBom(design) {
   return { rows, total: rows.reduce((s, r) => s + r.total, 0), currency: 'USD (list price estimate)' };
 }
 
-const COLORS = { isp: '#64748b', router: '#2563eb', firewall: '#dc2626', core: '#7c3aed', access: '#059669', server: '#d97706', users: '#94a3b8' };
+const COLORS = { mpls: '#0d9488', isp: '#64748b', router: '#2563eb', firewall: '#dc2626', core: '#7c3aed', access: '#059669', server: '#d97706', users: '#94a3b8' };
 
 export function streamReport(doc, res) {
   const pdf = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });

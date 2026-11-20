@@ -91,7 +91,17 @@ export default function RequirementForm({ onCreated }) {
         <h2>3. Service Requirements</h2>
         <div className="grid">
           <label>Connection type
-            <select value={f.connectionType} onChange={set('connectionType')}>
+            <select
+              value={f.connectionType}
+              onChange={(e) => {
+                const connectionType = e.target.value;
+                setF((p) => ({
+                  ...p,
+                  connectionType,
+                  deploymentType: connectionType === 'MPLS' ? 'ISP MPLS VPN' : 'Enterprise LAN',
+                }));
+              }}
+            >
               {['Internet', 'MPLS'].map((x) => <option key={x}>{x}</option>)}
             </select>
           </label>

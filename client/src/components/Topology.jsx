@@ -1,9 +1,28 @@
 import { useMemo, memo } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position } from '@xyflow/react';
 
-export const COLORS = { isp: '#64748b', router: '#2563eb', firewall: '#dc2626', core: '#7c3aed', access: '#059669', server: '#d97706', users: '#94a3b8' };
+export const COLORS = {
+  mpls: '#0d9488',
+  isp: '#64748b',
+  router: '#2563eb',
+  firewall: '#dc2626',
+  core: '#7c3aed',
+  access: '#059669',
+  server: '#d97706',
+  users: '#94a3b8',
+};
 
 const ICONS = {
+  mpls: (c) => (
+    <svg viewBox="0 0 72 48" width="64" height="42">
+      <ellipse cx="36" cy="24" rx="30" ry="16" fill={c} opacity="0.15" stroke={c} strokeWidth="2" strokeDasharray="4 3" />
+      <circle cx="20" cy="24" r="4" fill={c} />
+      <circle cx="36" cy="16" r="4" fill={c} />
+      <circle cx="52" cy="24" r="4" fill={c} />
+      <circle cx="36" cy="32" r="4" fill={c} />
+      <path d="M20 24L36 16L52 24L36 32Z" fill="none" stroke={c} strokeWidth="1.5" />
+    </svg>
+  ),
   isp: (c) => (
     <svg viewBox="0 0 64 48" width="56" height="42">
       <ellipse cx="32" cy="24" rx="26" ry="14" fill={c} opacity="0.2" stroke={c} strokeWidth="2" />
