@@ -219,8 +219,9 @@ export async function createDesign(input) {
     ai = await askAI({ system: SYSTEM, prompt, schema: SCHEMA });
   } catch (e) {
     if (process.env.DESIGN_FALLBACK === 'off') throw e;
+    // Fall back silently; engine field still records "local"
+    console.warn('[design] AI failed, using local rules:', e.message);
     ai = localDesign(req);
-    ai.warnings = [...(ai.warnings || []), `AI unavailable: ${e.message}`];
   }
   return buildDesign(req, ai);
 }

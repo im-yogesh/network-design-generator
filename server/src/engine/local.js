@@ -46,7 +46,6 @@ export function localDesign(req) {
       needFw ? `${req.industry} -> firewall ${firewallModel}` : `${req.industry} -> no firewall`,
       `Internal ${internal}, external ${external}`,
       `${accessCount} access switches`,
-      'All AI providers unavailable -> local rules',
     ],
     warnings: !req.deviceHa ? ['Single edge device is a single point of failure'] : [],
     _engine: 'local',
