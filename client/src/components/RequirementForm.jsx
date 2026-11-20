@@ -1,19 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-const DEPLOYMENT_TYPES = ['Enterprise LAN', 'Enterprise WAN', 'ISP MPLS VPN'];
 const DEPT_TYPES = ['User VLAN', 'Server VLAN', 'Guest VLAN', 'Management VLAN', 'Voice VLAN'];
 const HA_MODES = ['None', 'Device Redundancy', 'ISP Redundancy', 'Full HA'];
+const GEN_STEPS = [
+  'Validating requirements',
+  'Running design engine (AI may take a minute)',
+  'Allocating IP addressing',
+  'Building topology & device configs',
+  'Packaging design report',
+];
 const DEFAULTS = {
-  customerName: 'ABC Bank',
+  customerName: '',
   customerId: '',
   industry: 'Banking',
   sites: { count: 1, drSite: false },
-  users: { current: 100, growthPct: 0 },
+  users: { current: 10, growthPct: 0 },
   connectionType: 'Internet',
-  bandwidthMbps: 1000,
+  bandwidthMbps: 50,
   deploymentType: 'Enterprise LAN',
-  haMode: 'Full HA',
+  haMode: 'None',
   departments: [],
   servers: { dhcp: false, dns: false },
   ipMethod: 'auto',
@@ -26,10 +32,35 @@ const setPath = (obj, path, value) => {
   return { ...obj, [k]: rest.length ? setPath(obj[k] || {}, rest.join('.'), value) : value };
 };
 
+function formatElapsed(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
 export default function RequirementForm({ onCreated }) {
   const [f, setF] = useState(DEFAULTS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [elapsed, setElapsed] = useState(0);
+  const [pct, setPct] = useState(0);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    if (!busy) return undefined;
+    setElapsed(0);
+    setPct(4);
+    setStep(0);
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      const sec = Math.floor((Date.now() - t0) / 1000);
+      setElapsed(sec);
+      // Asymptotic progress so long AI waits still feel alive (caps ~92% until done)
+      setPct(Math.min(92, Math.round(4 + 88 * (1 - Math.exp(-sec / 45)))));
+      setStep(Math.min(GEN_STEPS.length - 1, Math.floor(sec / 12)));
+    }, 400);
+    return () => clearInterval(id);
+  }, [busy]);
 
   const set = (path) => (e) => {
     const t = e.target;
@@ -52,7 +83,10 @@ export default function RequirementForm({ onCreated }) {
     setBusy(true);
     setError('');
     try {
-      onCreated(await api.create(f));
+      const doc = await api.create(f);
+      setPct(100);
+      setStep(GEN_STEPS.length - 1);
+      onCreated(doc);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -60,10 +94,31 @@ export default function RequirementForm({ onCreated }) {
     }
   };
 
-  const growthUsers = Math.ceil((f.users.current || 0) * (1 + (f.users.growthPct || 0) / 100));
-
   return (
     <form className="form" onSubmit={submit}>
+      {busy && (
+        <div className="gen-overlay" role="status" aria-live="polite">
+          <div className="gen-card">
+            <div className="gen-spinner" aria-hidden="true" />
+            <h3>Generating design</h3>
+            <p className="hint">This can take 1–3 minutes while the AI and IPAM run. Please keep this tab open.</p>
+            <div className="gen-bar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+              <div className="gen-bar-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="gen-meta">
+              <span>{pct}%</span>
+              <span>{formatElapsed(elapsed)}</span>
+            </div>
+            <ul className="gen-steps">
+              {GEN_STEPS.map((label, i) => (
+                <li key={label} className={i < step ? 'done' : i === step ? 'active' : ''}>
+                  {label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       <section>
         <h2>1. Customer Information</h2>
         <div className="grid">
@@ -160,7 +215,7 @@ export default function RequirementForm({ onCreated }) {
       </section>
 
       {error && <div className="error">{error}</div>}
-      <button className="primary" disabled={busy}>{busy ? 'Generating...' : 'Generate Design'}</button>
+      <button className="primary" disabled={busy}>{busy ? 'Generating…' : 'Generate Design'}</button>
     </form>
   );
 }

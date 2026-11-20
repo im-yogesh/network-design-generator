@@ -448,3 +448,95 @@ pre {
   border-left: 1px solid rgba(125, 211, 199, 0.25);
   margin-left: 4px;
 }
+
+/* —— Generate progress —— */
+.gen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(11, 28, 36, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.gen-card {
+  width: min(440px, 100%);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  padding: 24px 22px;
+  text-align: center;
+}
+.gen-card h3 {
+  margin: 12px 0 6px;
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+.gen-spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto;
+  border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: gen-spin 0.8s linear infinite;
+}
+@keyframes gen-spin { to { transform: rotate(360deg); } }
+.gen-bar {
+  height: 8px;
+  background: #e6eef1;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 16px 0 8px;
+}
+.gen-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+  transition: width 0.4s ease;
+}
+.gen-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.gen-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.gen-steps li {
+  padding: 6px 0 6px 18px;
+  position: relative;
+  color: var(--muted);
+  border-bottom: 1px dashed var(--line);
+}
+.gen-steps li:last-child { border-bottom: none; }
+.gen-steps li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.gen-steps li.active { color: var(--accent-deep); font-weight: 600; }
+.gen-steps li.active::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.gen-steps li.done { color: var(--ok); }
+.gen-steps li.done::before { background: var(--ok); }
